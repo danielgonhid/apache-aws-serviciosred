@@ -321,8 +321,16 @@ sudo ss -ltnp | grep -E ':(80|443|8081|8082) '
 #   127.0.0.1:8082   apache2
 ```
 
+![Alternancia con curl y redirección 301](capturas/alternanciaRedireccion.png)
+
 En el navegador, recargando la página, el campo **"Servidor que responde"**
-va alternando entre Apache 1 y Apache 2. Además, ahora la conexión va por
+va alternando entre Apache 1 y Apache 2:
+
+| Primera recarga | Segunda recarga |
+|---|---|
+| ![](capturas/apache1.png) | ![](capturas/apache2.png) |
+
+ Además, ahora la conexión va por
 **HTTP/2** y **TLS 1.3** (HAProxy lo negocia con `alpn h2,http/1.1`).
 
 ### Página de estadísticas
@@ -332,6 +340,12 @@ HAProxy muestra en vivo el estado de cada servidor (verde = responde a los
 *health checks*) y las sesiones y peticiones que ha atendido cada uno. Con
 `stats admin` se puede además poner un servidor en mantenimiento desde la
 propia página (casilla del servidor → *Set state to MAINT* → *Apply*).
+
+![Estadísticas de HAProxy: los dos Apache UP, ~4500 sesiones cada uno](capturas/estadisticasHaProxy.png)
+
+Se ve el reparto: `servidor1` y `servidor2` con ~4 500 sesiones cada uno
+(la mayoría del benchmark), los dos **UP** con el *health check* en
+`L7OK/200`.
 
 ### Tolerancia a fallos
 
