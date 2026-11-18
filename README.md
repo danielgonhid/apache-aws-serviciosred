@@ -354,6 +354,11 @@ sudo mv /var/www/servidor1/index.html.off /var/www/servidor1/index.html
 #   2 active and 0 backup servers online.
 ```
 
+> En el navegador al principio siempre salía "Apache 1": cada recarga hacía
+> dos peticiones, la página y `/favicon.ico`, y con el reparto uno y uno la
+> página caía siempre en el mismo servidor. Se arregló con
+> `<link rel="icon" href="data:,">` en el HTML (sin icono, una sola petición).
+
 > Con `GET /` no funcionaba: sin `index.html`, Apache devuelve el listado del
 > directorio con un 200 y HAProxy seguía dándolo por bueno.
 
