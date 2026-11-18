@@ -373,6 +373,11 @@ sudo mv /var/www/servidor1/index.html.off /var/www/servidor1/index.html
 > página caía siempre en el mismo servidor. Se arregló con
 > `<link rel="icon" href="data:,">` en el HTML (sin icono, una sola petición).
 
+Prueba completa: se rompe `servidor1`, se piden 4 páginas (todas las
+atiende `servidor2` con 200) y se arregla:
+
+![Caída de servidor1: DOWN por 404, tráfico a servidor2, y vuelta a UP](capturas/caidaServer.png)
+
 > Con `GET /` no funcionaba: sin `index.html`, Apache devuelve el listado del
 > directorio con un 200 y HAProxy seguía dándolo por bueno.
 
