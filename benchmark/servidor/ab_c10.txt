@@ -1,0 +1,44 @@
+This is ApacheBench, Version 2.3 <$Revision$>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking donis-asir.ddns.net (be patient)
+
+
+Server Software:        Apache/2.4.71
+Server Hostname:        donis-asir.ddns.net
+Server Port:            443
+SSL/TLS Protocol:       TLSv1.3,TLS_AES_256_GCM_SHA384,256,256
+TLS Server Name:        donis-asir.ddns.net
+
+Document Path:          /
+Document Length:        13974 bytes
+
+Concurrency Level:      10
+Time taken for tests:   2.611 seconds
+Complete requests:      1000
+Failed requests:        0
+Total transferred:      14248000 bytes
+HTML transferred:       13974000 bytes
+Requests per second:    383.03 [#/sec] (mean)
+Time per request:       26.108 [ms] (mean)
+Time per request:       2.611 [ms] (mean, across all concurrent requests)
+Transfer rate:          5329.47 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        5   15   8.0     13      92
+Processing:     3   11   7.6      9      65
+Waiting:        1    5   4.4      4      44
+Total:         11   26  12.9     21     119
+
+Percentage of the requests served within a certain time (ms)
+  50%     21
+  66%     23
+  75%     25
+  80%     27
+  90%     36
+  95%     54
+  98%     71
+  99%     84
+ 100%    119 (longest request)
