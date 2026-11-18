@@ -3,3 +3,4 @@
 *.key
 # Notas de trabajo locales
 CLAUDE.md
+.stats_pass

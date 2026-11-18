@@ -13,6 +13,7 @@ obtenido con Certbot. Como ampliación, se mide su rendimiento con **ApacheBench
 |---|---|
 | Servidor | AWS EC2 (AWS Academy Learner Lab, us-east-1), Debian, IP elástica |
 | Web | Apache 2.4, VirtualHost propio para `donis-asir.ddns.net` |
+| Proxy | HAProxy 3.0 delante de dos Apache (balanceo `roundrobin`, HTTPS en el proxy) |
 | Dominio | No-IP (DNS dinámico gratuito), registro `A` hacia la IP elástica |
 | Certificado | Let's Encrypt con `certbot --apache` (clave ECDSA, renovación automática) |
 | Red | Grupo de seguridad con 80 y 443 abiertos; HTTP redirige a HTTPS (301) |
@@ -25,10 +26,14 @@ HTTPS y lo muestra en vivo.
 ```
 Navegador ──DNS──▶ No-IP: donis-asir.ddns.net = 34.207.154.160
     │
-    └──HTTPS (443)──▶ Grupo de seguridad AWS ──▶ EC2 Debian ──▶ Apache
-                                                    └─ certificado de Let's Encrypt
-                                                       (obtenido y renovado por Certbot)
+    └──HTTPS (443)──▶ Grupo de seguridad AWS ──▶ EC2 Debian ──▶ HAProxy ──┬──▶ Apache 1 (:8081)
+                                                                │       └──▶ Apache 2 (:8082)
+                                                                └─ certificado de Let's Encrypt
+                                                                   (obtenido y renovado por Certbot)
 ```
+
+Las secciones 1–4 son el montaje inicial (Apache sirviendo directamente en
+80/443); la 5 añade HAProxy delante y cambia lo necesario.
 
 Cada paso depende del anterior: sin IP fija el dominio se queda apuntando a
 una IP vieja, y sin dominio no hay certificado (Let's Encrypt no emite
@@ -198,6 +203,159 @@ curl -I https://donis-asir.ddns.net   # HTTP/1.1 200 OK
 En el navegador aparece el candado y, en los detalles del certificado, el
 emisor es Let's Encrypt. La propia página muestra **"HTTPS (cifrada)"** (lo
 detecta con JavaScript a partir de `location.protocol`).
+
+## 5. Balanceo de carga con HAProxy
+
+[HAProxy](https://www.haproxy.org/) es un **proxy inverso y balanceador de
+carga**: recibe todas las conexiones de los clientes y las reparte entre
+varios servidores web, que quedan ocultos detrás. En un despliegue real serían
+varias máquinas; aquí, para no crear otra instancia, son **dos Apache en la
+misma EC2**, cada uno en un puerto local.
+
+| Antes | Después |
+|---|---|
+| Apache escucha en 80 y 443 y hace el HTTPS | **HAProxy** escucha en 80 y 443 y hace el HTTPS |
+| | Apache escucha solo en `127.0.0.1:8081` y `127.0.0.1:8082` (inaccesible desde fuera) |
+| Certbot valida y configura a través de Apache | Certbot valida en modo *standalone*; HAProxy le pasa el reto |
+
+Todos los ficheros están en [`haproxy/`](haproxy/).
+
+### Apache: dos servidores en local
+
+[`ports.conf`](haproxy/ports.conf) deja a Apache escuchando solo en local, y
+[`servidores.conf`](haproxy/servidores.conf) define un VirtualHost por puerto,
+cada uno con su carpeta (`/var/www/servidor1` y `/var/www/servidor2`, con el
+mismo `index.html`).
+
+Para que se vea qué servidor responde, cada VirtualHost define una variable
+(`SetEnv SERVIDOR "Apache 1 (puerto 8081)"`) y la página la imprime con
+**SSI** (`mod_include`): `<!--#echo var="SERVIDOR" -->`. Tiene que ir en el
+propio HTML: si la página la pidiera en una segunda petición, el balanceo la
+mandaría al *otro* servidor.
+
+Como ahora todas las conexiones a Apache vienen de HAProxy (`127.0.0.1`),
+`mod_remoteip` lee la cabecera `X-Forwarded-For` para que los logs guarden la
+IP real del cliente.
+
+```bash
+sudo a2dissite 000-default donis-asir.ddns.net donis-asir.ddns.net-le-ssl
+sudo a2ensite servidores
+sudo a2enmod include remoteip
+sudo apache2ctl configtest && sudo systemctl restart apache2
+```
+
+### HAProxy
+
+```bash
+sudo apt install haproxy
+```
+
+HAProxy quiere el certificado y la clave **en un solo fichero**:
+
+```bash
+sudo mkdir -p /etc/haproxy/certs
+sudo sh -c 'cat /etc/letsencrypt/live/donis-asir.ddns.net/fullchain.pem \
+                /etc/letsencrypt/live/donis-asir.ddns.net/privkey.pem \
+              > /etc/haproxy/certs/donis-asir.ddns.net.pem'
+sudo chmod 600 /etc/haproxy/certs/donis-asir.ddns.net.pem
+```
+
+La configuración ([`haproxy.cfg`](haproxy/haproxy.cfg)) tiene dos partes:
+
+- **`frontend web`** (la entrada): escucha en 80 y 443 con el certificado,
+  redirige HTTP → HTTPS (301), manda el reto de Let's Encrypt a Certbot y el
+  resto a los Apache.
+- **`backend apaches`** (la salida): los dos Apache con `balance roundrobin`
+  (uno y uno) y `check`: HAProxy comprueba cada pocos segundos que responden
+  (`option httpchk GET /`) y deja de enviar tráfico al que se caiga. Además
+  añade la cabecera `X-Servidor` con el nombre del que respondió.
+
+```bash
+sudo haproxy -c -f /etc/haproxy/haproxy.cfg     # comprobar la sintaxis
+sudo systemctl restart haproxy
+```
+
+> Detalle que avisó `haproxy -c`: las reglas `http-request` (como la
+> redirección a HTTPS) se ejecutan **antes** que `use_backend`, aunque estén
+> escritas después. Por eso la redirección excluye explícitamente
+> `/.well-known/acme-challenge/`.
+
+### Certbot detrás de HAProxy
+
+`certbot --apache` ya no sirve: Apache no está en el puerto 80. Se cambia la
+renovación a modo **standalone**: Certbot levanta su propio mini servidor web
+en `127.0.0.1:8888` solo durante la renovación, y HAProxy le reenvía las
+peticiones a `/.well-known/acme-challenge/`.
+
+```bash
+sudo certbot reconfigure --cert-name donis-asir.ddns.net \
+     --standalone --http-01-port 8888 --http-01-address 127.0.0.1
+# y quitar la línea "installer = apache" de /etc/letsencrypt/renewal/donis-asir.ddns.net.conf
+```
+
+Tras renovar hay que volver a juntar certificado y clave y recargar HAProxy.
+De eso se encarga un *deploy hook*
+([`haproxy-deploy-hook.sh`](haproxy/haproxy-deploy-hook.sh)) en
+`/etc/letsencrypt/renewal-hooks/deploy/`, que Certbot ejecuta tras cada
+renovación con éxito.
+
+```bash
+sudo certbot renew --dry-run --run-deploy-hooks
+#   Congratulations, all simulated renewals succeeded
+```
+
+### Comprobaciones
+
+```bash
+for i in 1 2 3 4; do curl -sI https://donis-asir.ddns.net/ | grep -i x-servidor; done
+#   x-servidor: servidor1
+#   x-servidor: servidor2
+#   x-servidor: servidor1
+#   x-servidor: servidor2
+
+curl -I http://donis-asir.ddns.net/      # 301 -> https:// (ahora lo hace HAProxy)
+sudo ss -ltnp | grep -E ':(80|443|8081|8082) '
+#   0.0.0.0:80       haproxy
+#   0.0.0.0:443      haproxy
+#   127.0.0.1:8081   apache2
+#   127.0.0.1:8082   apache2
+```
+
+En el navegador, recargando la página, el campo **"Servidor que responde"**
+va alternando entre Apache 1 y Apache 2. Además, ahora la conexión va por
+**HTTP/2** y **TLS 1.3** (HAProxy lo negocia con `alpn h2,http/1.1`).
+
+### Página de estadísticas
+
+En `https://donis-asir.ddns.net/estadisticas` (con usuario y contraseña)
+HAProxy muestra en vivo el estado de cada servidor (verde = responde a los
+*health checks*) y las sesiones y peticiones que ha atendido cada uno. Con
+`stats admin` se puede además poner un servidor en mantenimiento desde la
+propia página (casilla del servidor → *Set state to MAINT* → *Apply*).
+
+### Tolerancia a fallos
+
+El *health check* pide `/index.html` a cada Apache cada 2 s. Para simular que
+un servidor se estropea se le quita la web:
+
+```bash
+sudo mv /var/www/servidor1/index.html /var/www/servidor1/index.html.off
+sudo journalctl -u haproxy -f
+#   Server apaches/servidor1 is DOWN, reason: Layer7 wrong status, code: 404 ...
+#   1 active and 0 backup servers left.
+```
+
+A partir de ahí todas las peticiones van a `servidor2` (siguen saliendo
+200, el cliente no nota nada). Al devolver el fichero:
+
+```bash
+sudo mv /var/www/servidor1/index.html.off /var/www/servidor1/index.html
+#   Server apaches/servidor1 is UP, reason: Layer7 check passed, code: 200
+#   2 active and 0 backup servers online.
+```
+
+> Con `GET /` no funcionaba: sin `index.html`, Apache devuelve el listado del
+> directorio con un 200 y HAProxy seguía dándolo por bueno.
 
 ## Problemas encontrados
 

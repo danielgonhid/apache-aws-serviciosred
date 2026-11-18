@@ -352,6 +352,7 @@
         <div><dt>Protocolo</dt><dd class="mono" id="d-proto">—</dd></div>
         <div><dt>Puerto</dt><dd class="mono" id="d-puerto">—</dd></div>
         <div><dt>Hora de la visita</dt><dd class="mono" id="d-hora">—</dd></div>
+        <div><dt>Servidor que responde</dt><dd class="mono" id="d-servidor"><!--#echo var="SERVIDOR" --></dd></div>
       </dl>
     </section>
 
@@ -374,6 +375,10 @@
 
     document.getElementById('d-puerto').textContent = location.port || (seguro ? '443' : '80');
     document.getElementById('d-hora').textContent = new Date().toLocaleString('es-ES');
+
+    // Apache escribe aquí su nombre con SSI (mod_include); en local queda vacío
+    var serv = document.getElementById('d-servidor');
+    if (!serv.textContent.trim() || serv.textContent.trim() === '(none)') serv.textContent = '—';
 
     // Muestra el dominio real en el comando de certbot cuando se entra por nombre
     if (/[a-z]/i.test(location.hostname)) {
