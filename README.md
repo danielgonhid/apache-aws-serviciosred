@@ -84,11 +84,11 @@ el dominio en `/etc/apache2/sites-available/donis-asir.ddns.net.conf`:
 <VirtualHost *:80>
     ServerName donis-asir.ddns.net
     DocumentRoot /var/www/html
-
-    ErrorLog ${APACHE_LOG_DIR}/error.log
-    CustomLog ${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
 ```
+
+(Sin `ErrorLog`/`CustomLog` propios: se usan los generales de Apache,
+`/var/log/apache2/error.log` y `access.log`.)
 
 El `ServerName` es importante: es lo que Certbot busca después para saber qué
 VirtualHost tiene que convertir a HTTPS.
@@ -127,16 +127,35 @@ sudo certbot --apache -d donis-asir.ddns.net
    - `fullchain.pem`: certificado del dominio + certificado intermedio de Let's Encrypt.
    - `privkey.pem`: clave privada (**ECDSA**, la que usa Certbot por defecto).
 3. **Configuración de Apache.** El plugin `--apache`:
-   - Crea `donis-asir.ddns.net-le-ssl.conf`, un VirtualHost en el **443** con
-     `SSLCertificateFile`/`SSLCertificateKeyFile` apuntando a esos ficheros,
-     y activa `mod_ssl`.
-   - Añade al VirtualHost del puerto 80 una **redirección permanente (301)** a
-     HTTPS:
+   - Activa `mod_ssl` y crea `donis-asir.ddns.net-le-ssl.conf`, una copia del
+     VirtualHost en el puerto **443** con el certificado:
 
      ```apache
+     <IfModule mod_ssl.c>
+     <VirtualHost *:443>
+         ServerName donis-asir.ddns.net
+         DocumentRoot /var/www/html
+
+     SSLCertificateFile /etc/letsencrypt/live/donis-asir.ddns.net/fullchain.pem
+     SSLCertificateKeyFile /etc/letsencrypt/live/donis-asir.ddns.net/privkey.pem
+     Include /etc/letsencrypt/options-ssl-apache.conf
+     </VirtualHost>
+     </IfModule>
+     ```
+
+     `options-ssl-apache.conf` lo mantiene Certbot y fija protocolos y
+     cifrados seguros (sin SSLv3, TLS 1.0 ni 1.1).
+   - Añade al VirtualHost del puerto 80 una **redirección permanente (301)** a
+     HTTPS, que queda así:
+
+     ```apache
+     <VirtualHost *:80>
+         ServerName donis-asir.ddns.net
+         DocumentRoot /var/www/html
      RewriteEngine on
      RewriteCond %{SERVER_NAME} =donis-asir.ddns.net
      RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+     </VirtualHost>
      ```
 
 ### Renovación automática
