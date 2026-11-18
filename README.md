@@ -5,6 +5,8 @@ EC2 de AWS, con un nombre de dominio dinámico y certificado HTTPS gratuito
 obtenido con Certbot. Como ampliación, se mide su rendimiento con **ApacheBench
 (`ab`)** y se grafican los resultados con **gnuplot**.
 
+![Página servida por HTTPS en donis-asir.ddns.net](capturas/web.png)
+
 ## Infraestructura
 
 | Pieza | Detalle |
