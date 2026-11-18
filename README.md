@@ -414,6 +414,40 @@ Los resultados completos de `ab` están en [`benchmark/pc/`](benchmark/pc/) y
   la CPU con Apache en la misma instancia, por lo que el límite real de Apache
   es algo mayor que el medido.
 
+### Repetido con HAProxy delante
+
+Mismo `benchmark.sh`, mismas condiciones, después de montar HAProxy (sección 5).
+Resultados en [`benchmark/servidor-haproxy/`](benchmark/servidor-haproxy/) y
+[`benchmark/pc-haproxy/`](benchmark/pc-haproxy/); gráficas con
+[`comparativa_haproxy.gp`](benchmark/comparativa_haproxy.gp).
+
+| Concurrencia | Servidor: Apache solo | Servidor: HAProxy | PC: Apache solo | PC: HAProxy |
+|---:|---:|---:|---:|---:|
+| 10  | 383 pet/s · 26 ms  | 502 pet/s · 20 ms  | 20,5 pet/s · 488 ms  | 20,4 pet/s · 489 ms |
+| 50  | 499 pet/s · 100 ms | 482 pet/s · 104 ms | 94,8 pet/s · 528 ms  | 96,6 pet/s · 518 ms |
+| 100 | 474 pet/s · 211 ms | 455 pet/s · 220 ms | 177,6 pet/s · 563 ms | 175,7 pet/s · 569 ms |
+
+0 peticiones fallidas en todas.
+
+![Peticiones por segundo: Apache solo vs HAProxy](benchmark/comparativa_haproxy_rps.png)
+![Tiempo medio por petición: Apache solo vs HAProxy](benchmark/comparativa_haproxy_tiempos.png)
+
+- **Desde el PC no cambia nada** (diferencias de ±2 %, ruido): el límite
+  sigue siendo la distancia, y un salto más dentro del servidor no se nota
+  al lado de ~480 ms de red.
+- **El techo sigue en ~500 peticiones/s.** Con 2 Apache detrás no se gana
+  capacidad porque los dos están en la **misma máquina** (2 vCPU) y el
+  cuello de botella era la CPU haciendo negociaciones TLS; ahora las hace
+  HAProxy, pero siguen siendo las mismas y en la misma CPU. Para ganar
+  capacidad de verdad los Apache tendrían que estar en instancias distintas.
+- **Con poca carga (c=10) mejora (~+25 %)** (repetido varias veces: 470–500
+  pet/s frente a 383): HAProxy está muy optimizado para hacer TLS y con poca
+  concurrencia lo resuelve antes que `mod_ssl`. Con c=50/100 queda un ~4 % por
+  debajo: el coste del salto extra HAProxy → Apache.
+- Lo que sí aporta HAProxy aquí no es velocidad sino **tolerancia a fallos**
+  (si un Apache cae, la web sigue) y un punto único para HTTPS, redirecciones
+  y estadísticas.
+
 ## Capturas
 
 | Benchmark desde el PC | Benchmark desde el servidor |
@@ -426,6 +460,8 @@ Gráficas individuales de cada ejecución:
 |---|---|---|
 | PC | ![](benchmark/pc/grafica_tiempos.png) | ![](benchmark/pc/grafica_rps.png) |
 | Servidor | ![](benchmark/servidor/grafica_tiempos.png) | ![](benchmark/servidor/grafica_rps.png) |
+| PC, con HAProxy | ![](benchmark/pc-haproxy/grafica_tiempos.png) | ![](benchmark/pc-haproxy/grafica_rps.png) |
+| Servidor, con HAProxy | ![](benchmark/servidor-haproxy/grafica_tiempos.png) | ![](benchmark/servidor-haproxy/grafica_rps.png) |
 
 ## Reproducirlo
 
