@@ -66,6 +66,8 @@ Pasos:
 3. Hostname `donis-asir`, dominio `ddns.net`, tipo de registro **A**
    (nombre → dirección IPv4) y como IP la IP elástica de la instancia.
 
+![Registro A en No-IP: donis-asir.ddns.net apunta a 34.207.154.160](capturas/noip.png)
+
 Comprobación desde cualquier equipo (puede tardar unos minutos en propagarse):
 
 ```bash
@@ -194,6 +196,10 @@ curl -I https://donis-asir.ddns.net   # HTTP/1.1 200 OK
 | `certbot certificates` | `certbot renew --dry-run` |
 |---|---|
 | ![](capturas/certbotCertificado.png) | ![](capturas/renovacionCertbot.png) |
+
+El mismo certificado visto desde el navegador (emisor, dominio y validez):
+
+![Certificado de Let's Encrypt para donis-asir.ddns.net, válido hasta el 16 de febrero de 2027](capturas/certificado.png)
 
 > En la captura sale la **ruta** de la clave privada, no su contenido. La ruta
 > es la misma en cualquier servidor con Certbot; el certificado en sí es
