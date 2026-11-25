@@ -390,6 +390,58 @@ atiende `servidor2` con 200) y se arregla:
 > Con `GET /` no funcionaba: sin `index.html`, Apache devuelve el listado del
 > directorio con un 200 y HAProxy seguía dándolo por bueno.
 
+### Logs e IP pública / privada
+
+La instancia solo conoce su IP **privada**; la elástica la traduce AWS (NAT).
+Con un proxy delante hay además otra conexión en medio, así que en cada punto
+se ve una IP distinta (`203.0.113.10` es un ejemplo de IP de cliente):
+
+| Dónde | IP | Por qué |
+|---|---|---|
+| Cliente en los logs | `203.0.113.10` (pública) | La del router del cliente; la privada de su PC no llega, por el NAT |
+| Tarjeta de red de la EC2 (`ens5`) | `172.31.22.40` (privada) | La instancia no tiene la pública en su tarjeta |
+| IP elástica | `34.207.154.160` (pública) | AWS la traduce a la privada |
+| Conexión HAProxy → Apache | `127.0.0.1` | HAProxy abre una conexión nueva desde la propia máquina |
+
+```bash
+ip -4 -br addr                       # IP privada
+T=$(curl -s -X PUT http://169.254.169.254/latest/api/token \
+     -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+curl -s -H "X-aws-ec2-metadata-token: $T" \
+     http://169.254.169.254/latest/meta-data/public-ipv4    # IP pública (metadatos de AWS)
+```
+
+Los logs de HAProxy están en `journalctl` (no hay `/var/log/haproxy.log`
+porque `rsyslog` no está activo) y los de Apache en su fichero de siempre:
+
+```bash
+sudo journalctl -u haproxy -f -o cat
+#   203.0.113.10:9862 [25/Nov/2026:07:52:46.528] web~ apaches/servidor1 0/0/1/1/2 200 4615 ... "GET https://donis-asir.ddns.net/ HTTP/2.0"
+
+sudo tail -f /var/log/apache2/other_vhosts_access.log
+#   donis-asir.ddns.net:80 203.0.113.10 - - [25/Nov/2026:08:01:52 +0000] "GET / HTTP/1.1" 200 14562 "-" "prueba-logs"
+
+# Quién ha entrado más
+sudo journalctl -u haproxy --since 2026-11-18 --no-pager -o cat \
+  | grep -oE '^[0-9.]+' | sort | uniq -c | sort -rn | head
+```
+
+En la línea de HAProxy: IP y puerto del cliente, frontend (`web~`, la `~`
+indica TLS), backend y servidor que respondió, tiempos en ms (el último es el
+total), código HTTP y bytes.
+
+Apache registra la IP pública del cliente, y no `127.0.0.1`, gracias a
+`X-Forwarded-For` (lo añade HAProxy) y `mod_remoteip`. Se probó además a
+falsear la cabecera y Apache siguió registrando la IP real:
+
+```bash
+curl -s -o /dev/null -H 'X-Forwarded-For: 1.2.3.4' https://donis-asir.ddns.net/
+```
+
+> En los logs aparecen también visitas de desconocidos: peticiones a páginas
+> que no existen (404) y conexiones con fallo TLS (`unsupported protocol`), lo
+> que encaja con exigir TLS 1.2 o superior.
+
 ## Problemas encontrados
 
 - **`index.html` corrupto al pegarlo con `nano`** por SSH: el pegado de un
