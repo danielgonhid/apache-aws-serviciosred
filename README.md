@@ -418,7 +418,9 @@ porque `rsyslog` no está activo) y los de Apache en su fichero de siempre:
 sudo journalctl -u haproxy -f -o cat
 #   203.0.113.10:9862 [25/Nov/2026:07:52:46.528] web~ apaches/servidor1 0/0/1/1/2 200 4615 ... "GET https://donis-asir.ddns.net/ HTTP/2.0"
 
-sudo tail -f /var/log/apache2/other_vhosts_access.log
+# sin los health checks de HAProxy (GET /index.html HTTP/1.0 desde 127.0.0.1)
+sudo tail -f /var/log/apache2/other_vhosts_access.log \
+  | grep --line-buffered -v 'GET /index.html HTTP/1.0'
 #   donis-asir.ddns.net:80 203.0.113.10 - - [25/Nov/2026:08:01:52 +0000] "GET / HTTP/1.1" 200 14562 "-" "prueba-logs"
 
 # Quién ha entrado más
@@ -438,9 +440,65 @@ falsear la cabecera y Apache siguió registrando la IP real:
 curl -s -o /dev/null -H 'X-Forwarded-For: 1.2.3.4' https://donis-asir.ddns.net/
 ```
 
+**El problema y la solución.** Sin las dos líneas `RemoteIP` de
+[`servidores.conf`](haproxy/servidores.conf), Apache solo guarda la IP de
+HAProxy (`127.0.0.1`) y la del cliente queda únicamente en el log de HAProxy.
+Para comprobarlo se comentaron, se recargó Apache y después se restauraron
+(la IP del cliente está tapada en las capturas):
+
+Sin `RemoteIP`: Apache registra `127.0.0.1`; la última visita en HAProxy sí
+lleva la IP del cliente:
+
+![Log de Apache con 127.0.0.1 y log de HAProxy con la IP del cliente](capturas/logs_antes.png)
+
+Con `RemoteIP`: Apache registra la IP del cliente:
+
+![Log de Apache con la IP del cliente](capturas/logs_despues.png)
+
 > En los logs aparecen también visitas de desconocidos: peticiones a páginas
 > que no existen (404) y conexiones con fallo TLS (`unsupported protocol`), lo
 > que encaja con exigir TLS 1.2 o superior.
+
+### Análisis de los logs con GoAccess
+
+[GoAccess](https://goaccess.io/) lee los logs de Apache y los resume en un panel
+(visitas, URLs, errores 404, navegadores…), en la terminal o en HTML.
+
+```bash
+sudo apt update && sudo apt install -y goaccess
+```
+
+El 25 de noviembre el log tenía 28 626 líneas, casi todas de *health checks* de
+HAProxy y del benchmark con `ab`. Se filtran (y las líneas antiguas, sin el
+dominio delante) para quedarse con las 98 restantes:
+
+```bash
+sudo grep '^donis-asir' /var/log/apache2/other_vhosts_access.log \
+  | grep -vE ' 127\.0\.0\.1 .*"GET /(index\.html)? HTTP/1\.0"' \
+  | grep -v ApacheBench > ~/visitas.log
+
+# Panel en la terminal (Tab y flechas para moverse, q para salir)
+goaccess ~/visitas.log --log-format=VCOMBINED --anonymize-ip
+
+# Informe HTML
+goaccess ~/visitas.log --log-format=VCOMBINED --anonymize-ip -o ~/informe.html
+```
+
+`VCOMBINED` es el formato combinado de Apache con el dominio delante.
+`--anonymize-ip` pone a 0 el final de cada IP. El informe **no se publica en
+`/var/www`** (mostraría quién visita la web): se descarga con `scp`.
+
+![Informe HTML de GoAccess: 98 peticiones, 0 fallidas, 37 visitantes únicos](capturas/goaccess_web.png)
+
+![GoAccess en la terminal](capturas/goaccess_terminal.png)
+
+Los 37 visitantes únicos no son 37 personas: GoAccess cuenta como visita cada
+combinación de IP, fecha y navegador, y aquí entran también las pruebas propias,
+los bots y los servidores de Let's Encrypt que validan el dominio (peticiones a
+`/.well-known/acme-challenge/`).
+
+Sin `mod_remoteip` este análisis no serviría: detrás de HAProxy todas las
+visitas saldrían como `127.0.0.1`.
 
 ## Problemas encontrados
 
