@@ -13,7 +13,7 @@ obtenido con Certbot. Como ampliación, se mide su rendimiento con **ApacheBench
 |---|---|
 | Servidor | AWS EC2 (AWS Academy Learner Lab, us-east-1), Debian, IP elástica |
 | Web | Apache 2.4, VirtualHost propio para `donis-asir.ddns.net` |
-| Proxy | HAProxy 3.0 delante de dos Apache (balanceo `roundrobin`, HTTPS en el proxy) |
+| Proxy | HAProxy 3.0 delante de dos VirtualHosts de Apache (balanceo `roundrobin`, HTTPS en el proxy) |
 | Dominio | No-IP (DNS dinámico gratuito), registro `A` hacia la IP elástica |
 | Certificado | Let's Encrypt con `certbot --apache` (clave ECDSA, renovación automática) |
 | Red | Grupo de seguridad con 80 y 443 abiertos; HTTP redirige a HTTPS (301) |
@@ -209,8 +209,11 @@ detecta con JavaScript a partir de `location.protocol`).
 [HAProxy](https://www.haproxy.org/) es un **proxy inverso y balanceador de
 carga**: recibe todas las conexiones de los clientes y las reparte entre
 varios servidores web, que quedan ocultos detrás. En un despliegue real serían
-varias máquinas; aquí, para no crear otra instancia, son **dos Apache en la
-misma EC2**, cada uno en un puerto local.
+varias máquinas; aquí, para no crear otra instancia, se simulan con **dos
+VirtualHosts de un mismo Apache**, cada uno en un puerto local. Para HAProxy
+son dos servidores distintos, pero comparten proceso: si se para el servicio
+`apache2` caen los dos y HAProxy responde **503**. En este documento, "Apache 1"
+y "Apache 2" se refieren a esos dos VirtualHosts.
 
 | Antes | Después |
 |---|---|
@@ -220,7 +223,7 @@ misma EC2**, cada uno en un puerto local.
 
 Todos los ficheros están en [`haproxy/`](haproxy/).
 
-### Apache: dos servidores en local
+### Apache: dos VirtualHosts en local
 
 [`ports.conf`](haproxy/ports.conf) deja a Apache escuchando solo en local, y
 [`servidores.conf`](haproxy/servidores.conf) define un VirtualHost por puerto,
@@ -265,9 +268,9 @@ La configuración ([`haproxy.cfg`](haproxy/haproxy.cfg)) tiene dos partes:
 - **`frontend web`** (la entrada): escucha en 80 y 443 con el certificado,
   redirige HTTP → HTTPS (301), manda el reto de Let's Encrypt a Certbot y el
   resto a los Apache.
-- **`backend apaches`** (la salida): los dos Apache con `balance roundrobin`
+- **`backend apaches`** (la salida): los dos VirtualHosts con `balance roundrobin`
   (uno y uno) y `check`: HAProxy comprueba cada pocos segundos que responden
-  (`option httpchk GET /`) y deja de enviar tráfico al que se caiga. Además
+  (`option httpchk GET /index.html`) y deja de enviar tráfico al que se caiga. Además
   añade la cabecera `X-Servidor` con el nombre del que respondió.
 
 ```bash
@@ -459,7 +462,7 @@ Resultados en [`benchmark/servidor-haproxy/`](benchmark/servidor-haproxy/) y
 - **Desde el PC no cambia nada** (diferencias de ±2 %, ruido): el límite
   sigue siendo la distancia, y un salto más dentro del servidor no se nota
   al lado de ~480 ms de red.
-- **El techo sigue en ~500 peticiones/s.** Con 2 Apache detrás no se gana
+- **El techo sigue en ~500 peticiones/s.** Con dos servidores detrás no se gana
   capacidad porque los dos están en la **misma máquina** (2 vCPU) y el
   cuello de botella era la CPU haciendo negociaciones TLS; ahora las hace
   HAProxy, pero siguen siendo las mismas y en la misma CPU. Para ganar
@@ -469,7 +472,7 @@ Resultados en [`benchmark/servidor-haproxy/`](benchmark/servidor-haproxy/) y
   concurrencia lo resuelve antes que `mod_ssl`. Con c=50/100 queda un ~4 % por
   debajo: el coste del salto extra HAProxy → Apache.
 - Lo que sí aporta HAProxy aquí no es velocidad sino **tolerancia a fallos**
-  (si un Apache cae, la web sigue) y un punto único para HTTPS, redirecciones
+  (si una de las dos webs falla, la otra sigue) y un punto único para HTTPS, redirecciones
   y estadísticas.
 
 ## Capturas
