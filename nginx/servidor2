@@ -1,0 +1,15 @@
+# /etc/nginx/sites-available/servidor2 — Nginx detrás de HAProxy
+server {
+    listen 127.0.0.1:8082;              # solo en local, como Apache
+    server_name donis-asir.ddns.net;
+    root /var/www/servidor2;
+    index index.html;
+
+    # SSI: sustituye <!--#echo var="SERVIDOR" --> en el HTML
+    ssi on;
+    set $SERVIDOR "Nginx (puerto 8082)";
+
+    # Registrar la IP real del cliente (igual que mod_remoteip en Apache)
+    set_real_ip_from 127.0.0.1;
+    real_ip_header X-Forwarded-For;
+}
